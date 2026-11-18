@@ -64,17 +64,19 @@ jobs:
           name: enterprise-rag-api
           path: ./publish
 
+      - name: Login to Azure via Service Principal
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
       - name: Deploy to Azure Web App
         uses: azure/webapps-deploy@v3
         with:
           app-name: ${{ env.AZURE_WEBAPP_NAME }}
-          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
           package: ./publish
 
       - name: Smoke-test production /health endpoint
         run: |
-          sleep 10
+          sleep 15
           curl --fail --silent --show-error "https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net/health"
         timeout-minutes: 2
-
-
