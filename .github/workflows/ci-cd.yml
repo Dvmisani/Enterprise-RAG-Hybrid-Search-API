@@ -77,6 +77,6 @@ jobs:
 
       - name: Smoke-test production /health endpoint
         run: |
-          sleep 15
-          curl --fail --silent --show-error "https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net/health"
-        timeout-minutes: 2
+          curl --fail --silent --show-error --retry 6 --retry-delay 10 --retry-all-errors "https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net/health"
+        timeout-minutes: 3
+
