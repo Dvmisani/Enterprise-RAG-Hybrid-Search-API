@@ -2,25 +2,28 @@
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ main ]
   pull_request:
-    branches: [ "main" ]
+    branches: [ main ]
+
+env:
+  DOTNET_VERSION: '10.0.x'
+  AZURE_WEBAPP_NAME: 'enterprise-rag-api-6125'
 
 jobs:
   build-and-test:
+    name: Build & SQL Server 2025 Vector Integration Tests
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        timeout-minutes: 2
 
-      - name: Setup .NET 10
+      - name: Setup .NET 10 SDK
         uses: actions/setup-dotnet@v4
-        timeout-minutes: 3
         with:
-          dotnet-version: '10.0.x'
+          dotnet-version: ${{ env.DOTNET_VERSION }}
 
       - name: Restore dependencies
         run: dotnet restore
@@ -33,3 +36,44 @@ jobs:
       - name: Run SQL Server 2025 Testcontainers Integration Suite
         run: dotnet test --no-build --configuration Release --nologo --logger "console;verbosity=normal"
         timeout-minutes: 8
+
+      - name: Publish API artifact for Azure App Service
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: dotnet publish src/EnterpriseRag.Api/EnterpriseRag.Api.csproj --configuration Release --no-build --output ./publish
+        timeout-minutes: 3
+
+      - name: Upload deployment artifact
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: enterprise-rag-api
+          path: ./publish
+          retention-days: 3
+
+  deploy-azure:
+    name: Deploy to Azure App Service
+    needs: build-and-test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && vars.AZURE_DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Download deployment artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: enterprise-rag-api
+          path: ./publish
+
+      - name: Deploy to Azure Web App
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ env.AZURE_WEBAPP_NAME }}
+          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+          package: ./publish
+
+      - name: Smoke-test production /health endpoint
+        run: |
+          sleep 10
+          curl --fail --silent --show-error "https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net/health"
+        timeout-minutes: 2
+
