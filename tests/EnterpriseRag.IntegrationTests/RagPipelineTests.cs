@@ -1,0 +1,149 @@
+﻿using System.Net;
+using System.Net.Http.Json;
+using EnterpriseRag.Api.Services;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Testcontainers.MsSql;
+using Xunit;
+
+namespace EnterpriseRag.IntegrationTests;
+
+public sealed class SqlServer2025Fixture : IAsyncLifetime
+{
+    public MsSqlContainer Container { get; } = new MsSqlBuilder("mcr.microsoft.com/mssql/server:2025-latest")
+        .WithPassword("Strong_Sql2025_Pass!")
+        .Build();
+
+    public async Task InitializeAsync()
+    {
+        await Container.StartAsync();
+        Environment.SetEnvironmentVariable("ConnectionStrings__DefaultConnection", Container.GetConnectionString());
+        Environment.SetEnvironmentVariable("Gemini__ApiKey", "");
+    }
+
+    public async Task DisposeAsync()
+    {
+        Environment.SetEnvironmentVariable("ConnectionStrings__DefaultConnection", null);
+        Environment.SetEnvironmentVariable("Gemini__ApiKey", null);
+        await Container.DisposeAsync();
+    }
+}
+
+public sealed class RagPipelineTests(SqlServer2025Fixture fixture) : IClassFixture<SqlServer2025Fixture>
+{
+    private WebApplicationFactory<Program> CreateFactory()
+    {
+        _ = fixture.Container.GetConnectionString();
+        return new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+        {
+            builder.UseEnvironment("Development");
+        });
+    }
+
+    [Fact]
+    public void SlidingWindowChunker_SplitsLongDocumentWithOverlap()
+    {
+        var text = string.Join(" ", Enumerable.Range(1, 200).Select(i => $"PolicyClause{i}."));
+        var chunks = SlidingWindowChunker.Chunk(text, maxChars: 300, overlapChars: 60);
+
+        Assert.True(chunks.Count >= 4);
+        Assert.All(chunks, c => Assert.True(c.Content.Length <= 300));
+    }
+
+    [Fact]
+    public async Task Ingest_IsIdempotentPerTenantViaSha256Hash()
+    {
+        await using var factory = CreateFactory();
+        var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Add("X-Tenant-Id", "tenant-idempotency");
+
+        var req = new IngestDocumentRequest(
+            "Security Policy",
+            "s3://docs/sec.md",
+            "All API keys must rotate every 90 days under ISO-27001 control A.9.4.");
+
+        var first = await client.PostAsJsonAsync("/api/documents/ingest", req);
+        Assert.Equal(HttpStatusCode.Created, first.StatusCode);
+        var body1 = await first.Content.ReadFromJsonAsync<IngestDocumentResponse>();
+        Assert.False(body1!.Deduplicated);
+
+        var second = await client.PostAsJsonAsync("/api/documents/ingest", req);
+        Assert.Equal(HttpStatusCode.OK, second.StatusCode);
+        var body2 = await second.Content.ReadFromJsonAsync<IngestDocumentResponse>();
+        Assert.True(body2!.Deduplicated);
+        Assert.Equal(body1.DocumentId, body2.DocumentId);
+    }
+
+    [Fact]
+    public async Task MultiTenantIsolation_PreventsCrossTenantRetrieval()
+    {
+        await using var factory = CreateFactory();
+        var client = factory.CreateClient();
+
+        using var ingestMsg = new HttpRequestMessage(HttpMethod.Post, "/api/documents/ingest")
+        {
+            Content = JsonContent.Create(new IngestDocumentRequest(
+                "Secret Merger Memo",
+                "internal://alpha/merger",
+                "Project Titan acquisition price is R450 million scheduled for Q4."))
+        };
+        ingestMsg.Headers.Add("X-Tenant-Id", "tenant-alpha");
+        (await client.SendAsync(ingestMsg)).EnsureSuccessStatusCode();
+
+        using var queryMsg = new HttpRequestMessage(HttpMethod.Post, "/api/query")
+        {
+            Content = JsonContent.Create(new RagQueryRequest("What is the Project Titan acquisition price?"))
+        };
+        queryMsg.Headers.Add("X-Tenant-Id", "tenant-beta");
+        var queryRes = await client.SendAsync(queryMsg);
+        var payload = await queryRes.Content.ReadFromJsonAsync<RagQueryResponse>();
+
+        Assert.False(payload!.Grounded);
+        Assert.Empty(payload.Citations);
+    }
+
+    [Fact]
+    public async Task HybridSearchAndCitation_ReturnsGroundedAnswerForExactPolicyCode()
+    {
+        await using var factory = CreateFactory();
+        var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Add("X-Tenant-Id", "tenant-compliance");
+
+        var ingest = await client.PostAsJsonAsync("/api/documents/ingest", new IngestDocumentRequest(
+            "ZAR Settlement Standard",
+            "internal://zar-standard",
+            "Under Rule FIN-904, outbound settlements above R250,000 require dual treasury sign-off."));
+        ingest.EnsureSuccessStatusCode();
+
+        var query = await client.PostAsJsonAsync("/api/query", new RagQueryRequest("What does Rule FIN-904 require for settlements?"));
+        query.EnsureSuccessStatusCode();
+        var result = await query.Content.ReadFromJsonAsync<RagQueryResponse>();
+
+        Assert.True(result!.Grounded);
+        Assert.Contains("ZAR Settlement Standard", result.Answer);
+        Assert.Single(result.Citations);
+        Assert.True(result.Citations[0].KeywordScore > 0);
+    }
+
+    [Fact]
+    public async Task AntiHallucinationGate_RefusesUnrelatedQuestions()
+    {
+        await using var factory = CreateFactory();
+        var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Add("X-Tenant-Id", "tenant-guardrail");
+
+        var ingest = await client.PostAsJsonAsync("/api/documents/ingest", new IngestDocumentRequest(
+            "Leave Policy",
+            "internal://hr/leave",
+            "Employees receive 21 consecutive days of annual leave per leave cycle."));
+        ingest.EnsureSuccessStatusCode();
+
+        var query = await client.PostAsJsonAsync("/api/query", new RagQueryRequest("What is the orbital velocity of Mars around the Sun?"));
+        query.EnsureSuccessStatusCode();
+        var result = await query.Content.ReadFromJsonAsync<RagQueryResponse>();
+
+        Assert.False(result!.Grounded);
+        Assert.StartsWith("INSUFFICIENT_GROUNDING", result.Answer);
+        Assert.Empty(result.Citations);
+    }
+}

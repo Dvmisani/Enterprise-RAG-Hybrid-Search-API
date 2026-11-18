@@ -1,0 +1,35 @@
+﻿name: Build, Test (SQL Server 2025) & Deploy to Azure
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        timeout-minutes: 2
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        timeout-minutes: 3
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore dependencies
+        run: dotnet restore
+        timeout-minutes: 3
+
+      - name: Build solution
+        run: dotnet build --no-restore --configuration Release
+        timeout-minutes: 3
+
+      - name: Run SQL Server 2025 Testcontainers Integration Suite
+        run: dotnet test --no-build --configuration Release --nologo --logger "console;verbosity=normal"
+        timeout-minutes: 8
