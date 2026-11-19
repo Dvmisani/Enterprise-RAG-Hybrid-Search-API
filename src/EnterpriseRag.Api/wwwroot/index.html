@@ -213,7 +213,9 @@
         const cites = (data.citations || []).map(c =>
           `<div class="citation"><strong>[${escapeHtml(c.documentTitle)} | Chunk #${c.chunkIndex}]</strong> (Vec: ${c.vectorSimilarity}, KW: ${c.keywordScore}, RRF: ${c.rrfScore})<br/>${escapeHtml(c.excerpt)}</div>`
         ).join('');
-        out.innerHTML = `${badge}<div class="answer-body">${renderSafeMarkdown(data.answer)}</div>${cites}`;
+        const chunkCount = (data.citations || []).length;
+        const metaHeader = `<div style="margin-bottom:0.6rem;padding:0.6rem 0.75rem;background:#0b1120;border:1px solid #334155;border-radius:6px;font-size:0.84rem;"><div><strong>Question:</strong> ${escapeHtml(data.question)}</div><div style="color:#94a3b8;margin-top:0.25rem;"><strong>Retrieved Chunks:</strong> ${chunkCount} &bull; <strong>Top Vector Similarity:</strong> ${data.topSimilarityScore}</div></div>`;
+        out.innerHTML = `${badge}${metaHeader}<div class="answer-body">${renderSafeMarkdown(data.answer)}</div>${cites}`;
       } catch (err) {
         out.innerHTML = `<span class="badge refused">ERROR</span><pre>${escapeHtml(err)}</pre>`;
       } finally {
@@ -226,3 +228,4 @@
   </script>
 </body>
 </html>
+
