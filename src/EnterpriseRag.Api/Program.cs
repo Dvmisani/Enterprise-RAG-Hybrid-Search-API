@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();
+builder.Services.AddProblemDetails();
 builder.Services.AddRouting(o => o.LowercaseUrls = true);
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
@@ -110,6 +111,8 @@ using (var scope = app.Services.CreateScope())
     }
 }
 
+app.UseExceptionHandler();
+app.UseStatusCodePages();
 app.UseDefaultFiles();
 app.UseStaticFiles();
 app.UseSwagger();
@@ -122,3 +125,4 @@ app.MapHealthChecks("/health");
 app.Run();
 
 public partial class Program;
+
