@@ -9,6 +9,16 @@ Multi-tenant RAG and hybrid search API built with **C# / .NET 10**, **SQL Server
 - **Swagger UI:** https://enterprise-rag-api-6125.azurewebsites.net/swagger
 - **Health Check:** https://enterprise-rag-api-6125.azurewebsites.net/health
 
+## Live Playground Preview
+
+### 1. Grounded Hybrid Search & Inline Provenance
+![Grounded Hybrid Search Result](docs/screenshots/grounded.png)
+
+### 2. Sub-Second Pre-LLM Anti-Hallucination Gate
+![Refused Out-of-Domain Query](docs/screenshots/refused.png)
+
+---
+
 ## System Architecture
 
 ```mermaid
@@ -45,4 +55,5 @@ dotnet test --nologo --logger "console;verbosity=normal"
 
 - **Exact Cosine vs. Approximate Index:** Exact `VECTOR_DISTANCE('cosine', ...)` scoped by `TenantId` guarantees 100% recall without cross-tenant index leakage; SQL Server 2025 `CREATE VECTOR INDEX` can be enabled at multi-million-chunk scale.
 - **Lexical Scoring & Observability:** Fuses term overlap via RRF (`k = 60`) and logs metrics to `QueryAuditLogs` (extensible to SQL Full-Text Search and OpenTelemetry / Application Insights).
+
 
