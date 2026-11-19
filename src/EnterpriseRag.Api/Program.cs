@@ -1,4 +1,5 @@
-﻿using EnterpriseRag.Api.Data;
+﻿using System.Threading.RateLimiting;
+using EnterpriseRag.Api.Data;
 using EnterpriseRag.Api.Services;
 using Microsoft.EntityFrameworkCore;
 
@@ -8,6 +9,33 @@ builder.Services.AddControllers();
 builder.Services.AddRouting(o => o.LowercaseUrls = true);
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+
+builder.Services.AddScoped<ITenantContext, HttpTenantContext>();
+var tenantKeys = new TenantApiKeyOptions();
+builder.Configuration.GetSection("TenantApiKeys").Bind(tenantKeys.Keys);
+builder.Services.AddSingleton(tenantKeys);
+
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(ctx =>
+    {
+        if (!(ctx.Request.Path.Value?.StartsWith("/api/", StringComparison.OrdinalIgnoreCase) ?? false))
+            return RateLimitPartition.GetNoLimiter("static");
+
+        var partitionKey = ctx.Request.Headers["X-Api-Key"].FirstOrDefault()
+                           ?? ctx.Connection.RemoteIpAddress?.ToString()
+                           ?? "anonymous";
+
+        return RateLimitPartition.GetFixedWindowLimiter(partitionKey, _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 20,
+            Window = TimeSpan.FromMinutes(1),
+            QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+            QueueLimit = 0
+        });
+    });
+});
 
 var connStr = builder.Configuration.GetConnectionString("DefaultConnection")
               ?? "Server=localhost,1433;Database=EnterpriseRagDb;User Id=sa;Password=Your_Strong_Password123!;TrustServerCertificate=True;";
@@ -25,6 +53,7 @@ builder.Services.AddSingleton(geminiOptions);
 builder.Services.AddHttpClient<IEmbeddingProvider, GeminiEmbeddingProvider>();
 builder.Services.AddHttpClient<IChatCompletionProvider, GeminiChatCompletionProvider>();
 builder.Services.AddScoped<RagEngineService>();
+builder.Services.AddHostedService<DemoTenantCleanupService>();
 builder.Services.AddHealthChecks();
 
 var app = builder.Build();
@@ -85,6 +114,8 @@ app.UseDefaultFiles();
 app.UseStaticFiles();
 app.UseSwagger();
 app.UseSwaggerUI();
+app.UseRateLimiter();
+app.UseMiddleware<TenantAuthMiddleware>();
 app.MapControllers();
 app.MapHealthChecks("/health");
 

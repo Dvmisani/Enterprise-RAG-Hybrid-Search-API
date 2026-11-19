@@ -12,7 +12,7 @@ namespace EnterpriseRag.Api.Services;
 public sealed record IngestDocumentRequest(string Title, string SourceUri, string Content);
 public sealed record IngestDocumentResponse(Guid DocumentId, string Title, string ContentHash, int ChunkCount, bool Deduplicated);
 
-public sealed record RagQueryRequest(string Question, int TopK = 4, double MinRelevanceScore = 0.25);
+public sealed record RagQueryRequest(string Question, int TopK = 4, double MinRelevanceScore = 0.48);
 public sealed record CitationSourceDto(
     Guid ChunkId,
     string DocumentTitle,
@@ -62,10 +62,13 @@ public sealed class RagEngineService(
             ChunkCount = slices.Count
         };
 
+        var embedTasks = slices.Select(s => embedder.EmbedAsync(s.Content, "RETRIEVAL_DOCUMENT", ct)).ToArray();
+        var vectors = await Task.WhenAll(embedTasks);
+
         var chunkRecords = new List<(DocumentChunk Chunk, string VectorJson)>(slices.Count);
-        foreach (var slice in slices)
+        for (int i = 0; i < slices.Count; i++)
         {
-            var vector = await embedder.EmbedAsync(slice.Content, "RETRIEVAL_DOCUMENT", ct);
+            var slice = slices[i];
             var chunk = new DocumentChunk
             {
                 DocumentId = doc.Id,
@@ -75,7 +78,7 @@ public sealed class RagEngineService(
                 TokenEstimate = slice.TokenEstimate,
                 EmbeddingJson = string.Empty
             };
-            chunkRecords.Add((chunk, SerializeVector(vector)));
+            chunkRecords.Add((chunk, SerializeVector(vectors[i])));
         }
 
         await using var tx = await db.Database.BeginTransactionAsync(ct);
@@ -114,13 +117,14 @@ public sealed class RagEngineService(
         if (candidates.Count == 0)
         {
             sw.Stop();
-            await LogAuditAsync(tenantId, question, grounded: false, topScore: 0, citedCount: 0, sw.ElapsedMilliseconds, ct);
+            const string gateProvider = "PreLlmGate (EmptyIndex)";
+            await LogAuditAsync(tenantId, question, grounded: false, topScore: 0, citedCount: 0, sw.ElapsedMilliseconds, gateProvider, ct);
             return new RagQueryResponse(
                 question,
                 "INSUFFICIENT_GROUNDING: No documents are indexed for this tenant.",
                 Grounded: false,
                 TopSimilarityScore: 0,
-                ProviderUsed: chat.ProviderName,
+                ProviderUsed: gateProvider,
                 LatencyMs: sw.ElapsedMilliseconds,
                 Citations: []);
         }
@@ -167,19 +171,20 @@ public sealed class RagEngineService(
             .ToList();
 
         var topBest = fused[0];
-        var strongKeywordMatch = topBest.KeywordScore >= 0.45;
+        var strongKeywordMatch = topBest.KeywordScore >= 0.45 && topBest.VectorSimilarity >= 0.30;
         var passesThreshold = topBest.VectorSimilarity >= req.MinRelevanceScore || strongKeywordMatch;
 
         if (!passesThreshold)
         {
             sw.Stop();
-            await LogAuditAsync(tenantId, question, grounded: false, topBest.VectorSimilarity, 0, sw.ElapsedMilliseconds, ct);
+            const string gateProvider = "PreLlmGate (SubThreshold)";
+            await LogAuditAsync(tenantId, question, grounded: false, topBest.VectorSimilarity, 0, sw.ElapsedMilliseconds, gateProvider, ct);
             return new RagQueryResponse(
                 question,
                 "INSUFFICIENT_GROUNDING: Retrieved passages fell below the confidence threshold; refusing to speculate.",
                 Grounded: false,
                 TopSimilarityScore: topBest.VectorSimilarity,
-                ProviderUsed: chat.ProviderName,
+                ProviderUsed: gateProvider,
                 LatencyMs: sw.ElapsedMilliseconds,
                 Citations: []);
         }
@@ -195,12 +200,12 @@ public sealed class RagEngineService(
                 c.DocumentTitle,
                 c.SourceUri,
                 c.ChunkIndex,
-                c.Content.Length > 220 ? c.Content[..220] + "..." : c.Content,
+                c.Content.Length > 240 ? c.Content[..240] + "..." : c.Content,
                 c.VectorSimilarity,
                 c.KeywordScore,
                 c.RrfScore)).ToList();
 
-        await LogAuditAsync(tenantId, question, grounded: !modelRefused, topBest.VectorSimilarity, citations.Count, sw.ElapsedMilliseconds, ct);
+        await LogAuditAsync(tenantId, question, grounded: !modelRefused, topBest.VectorSimilarity, citations.Count, sw.ElapsedMilliseconds, chat.ProviderName, ct);
 
         return new RagQueryResponse(
             question,
@@ -229,7 +234,7 @@ public sealed class RagEngineService(
                 c.Content,
                 1.0 - VECTOR_DISTANCE('cosine', c.Embedding, CAST(@QueryVec AS VECTOR(768))) AS CosineSimilarity
             FROM DocumentChunks c
-            INNER JOIN KnowledgeDocuments d ON c.DocumentId = d.Id
+            INNER JOIN KnowledgeDocuments d ON c.DocumentId = d.Id AND d.TenantId = @TenantId
             WHERE c.TenantId = @TenantId
             ORDER BY VECTOR_DISTANCE('cosine', c.Embedding, CAST(@QueryVec AS VECTOR(768))) ASC;";
 
@@ -252,7 +257,7 @@ public sealed class RagEngineService(
         return results;
     }
 
-    private async Task LogAuditAsync(string tenantId, string question, bool grounded, double topScore, int citedCount, long latencyMs, CancellationToken ct)
+    private async Task LogAuditAsync(string tenantId, string question, bool grounded, double topScore, int citedCount, long latencyMs, string providerUsed, CancellationToken ct)
     {
         db.QueryAuditLogs.Add(new QueryAuditLog
         {
@@ -262,7 +267,7 @@ public sealed class RagEngineService(
             TopSimilarityScore = Math.Round(topScore, 4),
             CitedChunkCount = citedCount,
             LatencyMs = latencyMs,
-            ProviderUsed = chat.ProviderName
+            ProviderUsed = providerUsed
         });
         await db.SaveChangesAsync(ct);
     }
@@ -282,7 +287,7 @@ public sealed class RagEngineService(
 
     private static HashSet<string> TokenizeKeywords(string text)
     {
-        var stopWords = new HashSet<string>(["the", "is", "at", "which", "on", "for", "and", "or", "to", "in", "of", "a", "an", "what", "how", "does", "do", "are"]);
+        var stopWords = new HashSet<string>(["the", "is", "at", "which", "on", "for", "and", "or", "to", "in", "of", "a", "an", "what", "how", "does", "do", "are", "who", "when", "where", "why"]);
         return text.ToLowerInvariant()
             .Split([' ', '\n', '\r', '\t', '.', ',', ';', ':', '!', '?', '(', ')', '[', ']', '"', '\'', '/'], StringSplitOptions.RemoveEmptyEntries)
             .Where(t => t.Length >= 2 && !stopWords.Contains(t))
