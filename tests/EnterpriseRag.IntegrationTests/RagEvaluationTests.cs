@@ -7,13 +7,14 @@ using Xunit.Abstractions;
 
 namespace EnterpriseRag.IntegrationTests;
 
-public sealed class RagEvaluationTests(SqlServer2025Fixture fixture, ITestOutputHelper output) : IClassFixture<SqlServer2025Fixture>
+[Collection("SqlServer2025")]
+public sealed class RagEvaluationTests(SqlServer2025Fixture fixture, ITestOutputHelper output)
 {
     [Fact]
     public async Task SixteenQuestionBenchmark_AchievesFullHitRateAndRefusalAccuracy()
     {
         _ = fixture.Container.GetConnectionString();
-        await using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(b => b.UseEnvironment("Development"));
+        await using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(b => b.UseEnvironment("Development").UseSetting("ConnectionStrings:DefaultConnection", fixture.Container.GetConnectionString()).UseSetting("Gemini:ApiKey", ""));
         var client = factory.CreateClient();
         client.DefaultRequestHeaders.Add("X-Api-Key", "demo-public-key-2026");
 
@@ -91,3 +92,4 @@ public sealed class RagEvaluationTests(SqlServer2025Fixture fixture, ITestOutput
         Assert.Equal(outDomainTotal, outDomainRefused);
     }
 }
+

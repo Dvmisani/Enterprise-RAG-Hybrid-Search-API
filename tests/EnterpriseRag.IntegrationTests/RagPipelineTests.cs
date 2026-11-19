@@ -8,28 +8,27 @@ using Xunit;
 
 namespace EnterpriseRag.IntegrationTests;
 
+using Testcontainers.MsSql;
+using Xunit;
+
+namespace EnterpriseRag.IntegrationTests;
+
+[CollectionDefinition("SqlServer2025")]
+public sealed class SqlServer2025Collection : ICollectionFixture<SqlServer2025Fixture>;
+
 public sealed class SqlServer2025Fixture : IAsyncLifetime
 {
     public MsSqlContainer Container { get; } = new MsSqlBuilder("mcr.microsoft.com/mssql/server:2025-latest")
         .WithPassword("Strong_Sql2025_Pass!")
         .Build();
 
-    public async Task InitializeAsync()
-    {
-        await Container.StartAsync();
-        Environment.SetEnvironmentVariable("ConnectionStrings__DefaultConnection", Container.GetConnectionString());
-        Environment.SetEnvironmentVariable("Gemini__ApiKey", "");
-    }
+    public async Task InitializeAsync() => await Container.StartAsync();
 
-    public async Task DisposeAsync()
-    {
-        Environment.SetEnvironmentVariable("ConnectionStrings__DefaultConnection", null);
-        Environment.SetEnvironmentVariable("Gemini__ApiKey", null);
-        await Container.DisposeAsync();
-    }
+    public async Task DisposeAsync() => await Container.DisposeAsync();
 }
 
-public sealed class RagPipelineTests(SqlServer2025Fixture fixture) : IClassFixture<SqlServer2025Fixture>
+[Collection("SqlServer2025")]
+public sealed class RagPipelineTests(SqlServer2025Fixture fixture)
 {
     private WebApplicationFactory<Program> CreateFactory()
     {
@@ -37,6 +36,8 @@ public sealed class RagPipelineTests(SqlServer2025Fixture fixture) : IClassFixtu
         return new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
             builder.UseEnvironment("Development");
+            builder.UseSetting("ConnectionStrings:DefaultConnection", fixture.Container.GetConnectionString());
+            builder.UseSetting("Gemini:ApiKey", "");
         });
     }
 
@@ -223,3 +224,4 @@ public sealed class RagPipelineTests(SqlServer2025Fixture fixture) : IClassFixtu
         Assert.Equal(HttpStatusCode.BadRequest, oversizedQuery.StatusCode);
     }
 }
+
