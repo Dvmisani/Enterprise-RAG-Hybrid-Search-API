@@ -166,14 +166,16 @@ public sealed class GeminiChatCompletionProvider(HttpClient http, GeminiOptions 
         return BuildExtractiveCitationAnswer(contexts);
     }
 
-        private static string BuildExtractiveCitationAnswer(IReadOnlyList<RetrievedChunkContext> contexts)
+            private static string BuildExtractiveCitationAnswer(IReadOnlyList<RetrievedChunkContext> contexts)
     {
         var top = contexts[0];
         if (top.KeywordScore <= 0 && top.VectorSimilarity < 0.72)
         {
             return "INSUFFICIENT_GROUNDING: No passage matched the query terms with sufficient confidence.";
         }
-        return $"Based on [{top.DocumentTitle} | Chunk #{top.ChunkIndex}]: {top.Content}";
+        var relevant = contexts.Where(c => c.KeywordScore > 0 || c.VectorSimilarity >= 0.45).Take(2).ToList();
+        if (relevant.Count == 0) relevant.Add(top);
+        return string.Join("\n\n", relevant.Select(c => $"Based on [{c.DocumentTitle} | Chunk #{c.ChunkIndex}]: {c.Content}"));
     }
 }
 
@@ -210,4 +212,5 @@ public static class DeterministicHashEmbedding
         return vec;
     }
 }
+
 
