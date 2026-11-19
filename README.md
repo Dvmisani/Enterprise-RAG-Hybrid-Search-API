@@ -1,21 +1,53 @@
-﻿# Enterprise RAG & Hybrid Search API (.NET 10 + SQL Server 2025 + Gemini)
+﻿# Enterprise RAG & Hybrid Search API (.NET 10 + SQL Server 2025 `VECTOR(768)`)
 
-A production-grade, multi-tenant **Retrieval-Augmented Generation (RAG) & Hybrid Search API** engineered in **C# / .NET 10** and **SQL Server 2025**, designed to eliminate LLM hallucinations on internal enterprise policies, financial standards, and technical documentation.
+[![Build, Test (SQL Server 2025) & Deploy to Azure](https://github.com/dvmisani/Enterprise-RAG-Hybrid-Search-API/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/dvmisani/Enterprise-RAG-Hybrid-Search-API/actions/workflows/ci-cd.yml)
 
-## Core Architecture & Engineering Highlights
+Production-grade, multi-tenant Retrieval-Augmented Generation (RAG) and hybrid search engine built in **C# / .NET 10**, **SQL Server 2025 / Azure SQL native `VECTOR(768)`**, and **Google Gemini**—engineered with strict anti-hallucination guardrails, inline chunk citations, and deterministic `Testcontainers` integration tests.
 
-- **Native SQL Server 2025 Vector Search (`VECTOR(768)`):** Stores L2-normalized 768-dimensional embeddings directly in SQL Server 2025 `VECTOR(768)` columns and computes cosine similarity via native `VECTOR_DISTANCE('cosine', ...)`.
-- **Hybrid Retrieval via Reciprocal Rank Fusion (RRF):** Combines semantic dense-vector ranking with exact lexical keyword term-frequency ranking (`k = 60`) so exact regulatory codes (e.g., `POPIA Section 14`, `Rule FIN-904`) and semantic paraphrases both rank at the top.
-- **Anti-Hallucination Citation Guardrails:** Enforces a strict relevance threshold gate prior to synthesis and instructs `gemini-2.5-flash` to cite `[Document Title | Chunk #N]` inline or explicitly refuse with `INSUFFICIENT_GROUNDING` when indexed context lacks evidence.
-- **Multi-Tenant Isolation & SHA-256 Ingestion Idempotency:** Every document, chunk, vector query, and audit log is isolated by `X-Tenant-Id`, with SHA-256 content-hash deduplication to avoid redundant embedding API spend.
-- **Deterministic Offline Integration Suite (`Testcontainers`):** Executes end-to-end HTTP + SQL Server 2025 integration tests in Docker with a deterministic hash-embedding fallback provider so CI/CD pipelines run fast without external API keys.
+- **Live Cloud Playground:** [https://enterprise-rag-api-6125.azurewebsites.net](https://enterprise-rag-api-6125.azurewebsites.net)
+- **Interactive OpenAPI / Swagger:** [https://enterprise-rag-api-6125.azurewebsites.net/swagger](https://enterprise-rag-api-6125.azurewebsites.net/swagger)
+- **Health Check:** [https://enterprise-rag-api-6125.azurewebsites.net/health](https://enterprise-rag-api-6125.azurewebsites.net/health)
 
-## Running Locally
+---
 
-```bash
-# 1. Configure your free Google Gemini API key via User Secrets
-dotnet user-secrets init --project src/EnterpriseRag.Api
+## Key Architectural Highlights
+
+1. **Native SQL Server 2025 / Azure SQL `VECTOR(768)` Storage & Search**
+   - Stores 768-dimensional embeddings directly in relational tables (`Embedding VECTOR(768) NOT NULL`) alongside tenant metadata—eliminating external vector database synchronization drift.
+   - Computes exact cosine distance (`VECTOR_DISTANCE('cosine', ...)`) combined with lexical term scoring via **Reciprocal Rank Fusion (RRF)**.
+
+2. **Anti-Hallucination Guardrail & Inline Provenance**
+   - Enforces strict grounding prompts requiring `[Document Title | Chunk #N]` inline citations for every factual claim.
+   - Refuses out-of-domain or unsupported queries (`INSUFFICIENT_GROUNDING`) and logs every decision, similarity score, provider, and latency metric to `QueryAuditLogs`.
+
+3. **Multi-Tenant Isolation & Idempotent Ingestion**
+   - Isolates document storage, vector retrieval, and audit trails per tenant via the `X-Tenant-Id` header.
+   - Prevents duplicate chunk embedding costs using SHA-256 content-hash deduplication per tenant.
+
+4. **Resilient AI Provider Pipeline**
+   - Dynamically discovers text-capable Gemini models (`gemini-embedding-001` for 768-dim vectors; multi-model Flash failover with per-model timeouts for synthesis) and degrades gracefully when hosted endpoints experience transient load spikes.
+
+5. **Automated CI/CD with SQL Server 2025 `Testcontainers`**
+   - GitHub Actions spins up a real `[mcr.microsoft.com/mssql/server:2025-latest](https://mcr.microsoft.com/mssql/server:2025-latest)` Docker container on every push to verify multi-tenant isolation, sliding-window chunking, SHA-256 deduplication, and grounded citation synthesis before deploying to Azure App Service.
+
+---
+
+## Local Quickstart
+
+bash
+# 1. Start SQL Server 2025 in Docker
+docker run -d --name sql2025-rag -e "ACCEPT_EULA=Y" -e "MSSQL_SA_PASSWORD=Your_Strong_Password123!" -p 1433:1433 [mcr.microsoft.com/mssql/server:2025-latest](https://mcr.microsoft.com/mssql/server:2025-latest)
+docker exec sql2025-rag /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "Your_Strong_Password123!" -C -Q "CREATE DATABASE EnterpriseRagDb;"
+
+# 2. Configure Gemini API Key via .NET User Secrets
 dotnet user-secrets set "Gemini:ApiKey" "YOUR_GEMINI_API_KEY" --project src/EnterpriseRag.Api
 
-# 2. Run the SQL Server 2025 Testcontainers integration tests
+# 3. Run API & Web Playground
+dotnet run --project src/EnterpriseRag.Api
+
+
+Run the automated SQL Server 2025 integration test suite:
+
+bash
 dotnet test --nologo --logger "console;verbosity=normal"
+
