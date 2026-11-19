@@ -158,7 +158,7 @@ public sealed class GeminiChatCompletionProvider(HttpClient http, GeminiOptions 
             }
             catch (OperationCanceledException) when (!ct.IsCancellationRequested)
             {
-                // Individual model exceeded 8s SLA; immediately try next candidate
+                // Individual model exceeded 12s SLA; immediately try next candidate
             }
         }
 
@@ -166,7 +166,7 @@ public sealed class GeminiChatCompletionProvider(HttpClient http, GeminiOptions 
         return BuildExtractiveCitationAnswer(contexts);
     }
 
-                private static string BuildExtractiveCitationAnswer(IReadOnlyList<RetrievedChunkContext> contexts)
+    private static string BuildExtractiveCitationAnswer(IReadOnlyList<RetrievedChunkContext> contexts)
     {
         var top = contexts[0];
         if (top.KeywordScore <= 0 && top.VectorSimilarity < 0.72)
@@ -177,6 +177,7 @@ public sealed class GeminiChatCompletionProvider(HttpClient http, GeminiOptions 
         if (relevant.Count == 0) relevant.Add(top);
         return string.Join(" ", relevant.Select(c => $"Based on [{c.DocumentTitle} | Chunk #{c.ChunkIndex}]: {c.Content}"));
     }
+}
 
 public static class DeterministicHashEmbedding
 {
@@ -211,6 +212,3 @@ public static class DeterministicHashEmbedding
         return vec;
     }
 }
-
-
-
