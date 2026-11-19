@@ -22,6 +22,7 @@ flowchart LR
     Gate -- "<350ms" --> Refuse["INSUFFICIENT_GROUNDING"]
     Gate -- "Pass" --> LLM["Gemini Flash"] --> Verifier{"CitationVerifier"}
     Verifier -- "Valid" --> Audit[("QueryAuditLogs")]
+```
 
 ## Evaluation & Benchmark Results (16-Question CI Suite)
 
@@ -38,8 +39,10 @@ All `/api/*` endpoints require `X-Api-Key` (demo key: `demo-public-key-2026` -> 
 ```bash
 GEMINI_API_KEY="YOUR_KEY" docker compose up --build
 dotnet test --nologo --logger "console;verbosity=normal"
+```
 
 ## Architectural Trade-Offs & Next Steps
 
 - **Exact Cosine vs. Approximate Index:** Exact `VECTOR_DISTANCE('cosine', ...)` scoped by `TenantId` guarantees 100% recall without cross-tenant index leakage; SQL Server 2025 `CREATE VECTOR INDEX` can be enabled at multi-million-chunk scale.
 - **Lexical Scoring & Observability:** Fuses term overlap via RRF (`k = 60`) and logs metrics to `QueryAuditLogs` (extensible to SQL Full-Text Search and OpenTelemetry / Application Insights).
+
