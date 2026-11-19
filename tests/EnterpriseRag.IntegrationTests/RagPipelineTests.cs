@@ -51,11 +51,22 @@ public sealed class RagPipelineTests(SqlServer2025Fixture fixture) : IClassFixtu
     }
 
     [Fact]
+    public async Task UnauthenticatedOrSpoofedTenantHeader_Returns401Unauthorized()
+    {
+        await using var factory = CreateFactory();
+        var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Add("X-Tenant-Id", "tenant-alpha");
+
+        var res = await client.GetAsync("/api/documents");
+        Assert.Equal(HttpStatusCode.Unauthorized, res.StatusCode);
+    }
+
+    [Fact]
     public async Task Ingest_IsIdempotentPerTenantViaSha256Hash()
     {
         await using var factory = CreateFactory();
         var client = factory.CreateClient();
-        client.DefaultRequestHeaders.Add("X-Tenant-Id", "tenant-idempotency");
+        client.DefaultRequestHeaders.Add("X-Api-Key", "demo-public-key-2026");
 
         var req = new IngestDocumentRequest(
             "Security Policy",
@@ -87,14 +98,14 @@ public sealed class RagPipelineTests(SqlServer2025Fixture fixture) : IClassFixtu
                 "internal://alpha/merger",
                 "Project Titan acquisition price is R450 million scheduled for Q4."))
         };
-        ingestMsg.Headers.Add("X-Tenant-Id", "tenant-alpha");
+        ingestMsg.Headers.Add("X-Api-Key", "alpha-secret-key");
         (await client.SendAsync(ingestMsg)).EnsureSuccessStatusCode();
 
         using var queryMsg = new HttpRequestMessage(HttpMethod.Post, "/api/query")
         {
             Content = JsonContent.Create(new RagQueryRequest("What is the Project Titan acquisition price?"))
         };
-        queryMsg.Headers.Add("X-Tenant-Id", "tenant-beta");
+        queryMsg.Headers.Add("X-Api-Key", "beta-secret-key");
         var queryRes = await client.SendAsync(queryMsg);
         var payload = await queryRes.Content.ReadFromJsonAsync<RagQueryResponse>();
 
@@ -107,7 +118,7 @@ public sealed class RagPipelineTests(SqlServer2025Fixture fixture) : IClassFixtu
     {
         await using var factory = CreateFactory();
         var client = factory.CreateClient();
-        client.DefaultRequestHeaders.Add("X-Tenant-Id", "tenant-compliance");
+        client.DefaultRequestHeaders.Add("X-Api-Key", "alpha-secret-key");
 
         var ingest = await client.PostAsJsonAsync("/api/documents/ingest", new IngestDocumentRequest(
             "ZAR Settlement Standard",
@@ -126,11 +137,11 @@ public sealed class RagPipelineTests(SqlServer2025Fixture fixture) : IClassFixtu
     }
 
     [Fact]
-    public async Task AntiHallucinationGate_RefusesUnrelatedQuestions()
+    public async Task AntiHallucinationGate_RefusesUnrelatedQuestionsBeforeLlmCall()
     {
         await using var factory = CreateFactory();
         var client = factory.CreateClient();
-        client.DefaultRequestHeaders.Add("X-Tenant-Id", "tenant-guardrail");
+        client.DefaultRequestHeaders.Add("X-Api-Key", "beta-secret-key");
 
         var ingest = await client.PostAsJsonAsync("/api/documents/ingest", new IngestDocumentRequest(
             "Leave Policy",
@@ -144,6 +155,24 @@ public sealed class RagPipelineTests(SqlServer2025Fixture fixture) : IClassFixtu
 
         Assert.False(result!.Grounded);
         Assert.StartsWith("INSUFFICIENT_GROUNDING", result.Answer);
+        Assert.StartsWith("PreLlmGate", result.ProviderUsed);
         Assert.Empty(result.Citations);
+    }
+
+    [Fact]
+    public async Task QuotaProtection_RejectsOversizedDocumentAndQuery()
+    {
+        await using var factory = CreateFactory();
+        var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Add("X-Api-Key", "demo-public-key-2026");
+
+        var oversizedDoc = await client.PostAsJsonAsync("/api/documents/ingest", new IngestDocumentRequest(
+            "Huge Doc",
+            "internal://huge",
+            new string('A', 15_001)));
+        Assert.Equal(HttpStatusCode.BadRequest, oversizedDoc.StatusCode);
+
+        var oversizedQuery = await client.PostAsJsonAsync("/api/query", new RagQueryRequest(new string('?', 501)));
+        Assert.Equal(HttpStatusCode.BadRequest, oversizedQuery.StatusCode);
     }
 }

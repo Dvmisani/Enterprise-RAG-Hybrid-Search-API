@@ -6,25 +6,33 @@
   <title>Enterprise RAG & Hybrid Search API</title>
   <style>
     body { font-family: system-ui, -apple-system, sans-serif; background: #0f172a; color: #e2e8f0; margin: 0; padding: 2rem; }
-    .container { max-width: 1100px; margin: 0 auto; }
+    .container { max-width: 1140px; margin: 0 auto; }
     header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #1e293b; padding-bottom: 1rem; margin-bottom: 1.5rem; }
     h1 { color: #38bdf8; margin: 0 0 0.25rem 0; font-size: 1.5rem; }
     .sub { color: #94a3b8; font-size: 0.875rem; }
     nav a { color: #94a3b8; text-decoration: none; margin-left: 1rem; font-size: 0.9rem; }
-    .toolbar { display: flex; gap: 1rem; align-items: center; margin-bottom: 1.5rem; }
+    .toolbar { display: flex; flex-wrap: wrap; gap: 0.85rem; align-items: center; margin-bottom: 1.5rem; background: #1e293b; padding: 0.85rem 1.1rem; border-radius: 8px; border: 1px solid #334155; }
     input, textarea { width: 100%; box-sizing: border-box; background: #0b1120; border: 1px solid #334155; color: #f8fafc; padding: 0.65rem; border-radius: 6px; margin-top: 0.35rem; margin-bottom: 1rem; font-family: inherit; }
     .toolbar input { width: 220px; margin: 0; }
-    button { background: #0284c7; color: white; border: none; padding: 0.65rem 1.1rem; border-radius: 6px; font-weight: 600; cursor: pointer; }
+    .tenant-pill { background: #0b1120; border: 1px solid #334155; color: #38bdf8; padding: 0.4rem 0.75rem; border-radius: 6px; font-size: 0.82rem; font-family: monospace; }
+    button { background: #0284c7; color: white; border: none; padding: 0.65rem 1.1rem; border-radius: 6px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 0.5rem; }
     button.secondary { background: #334155; }
-    button:hover { opacity: 0.92; }
+    button:hover:not(:disabled) { opacity: 0.92; }
+    button:disabled { opacity: 0.55; cursor: not-allowed; }
     .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+    @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
     .card { background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 1.5rem; }
     label { font-size: 0.85rem; color: #94a3b8; display: block; }
     .badge { display: inline-block; padding: 0.25rem 0.6rem; border-radius: 4px; font-size: 0.75rem; font-weight: 700; margin-bottom: 0.75rem; }
     .grounded { background: #065f46; color: #6ee7b7; }
     .refused { background: #7f1d1d; color: #fca5a5; }
     pre { background: #0b1120; padding: 0.85rem; border-radius: 6px; overflow-x: auto; white-space: pre-wrap; font-size: 0.82rem; border: 1px solid #334155; }
-    .citation { background: #0b1120; border-left: 3px solid #38bdf8; padding: 0.65rem; margin-top: 0.6rem; font-size: 0.85rem; }
+    .citation { background: #0b1120; border-left: 3px solid #38bdf8; padding: 0.75rem; margin-top: 0.65rem; font-size: 0.85rem; border-radius: 0 6px 6px 0; }
+    .cite-tag { background: #1e3a8a; color: #93c5fd; padding: 0.1rem 0.4rem; border-radius: 4px; font-family: monospace; font-size: 0.82em; }
+    .answer-body { line-height: 1.6; font-size: 0.95rem; }
+    .answer-body code { background: #0b1120; padding: 0.15rem 0.35rem; border-radius: 4px; font-size: 0.88em; color: #7dd3fc; }
+    .spinner { width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff; border-radius: 50%; animation: spin 0.7s linear infinite; display: inline-block; }
+    @keyframes spin { to { transform: rotate(360deg); } }
   </style>
 </head>
 <body>
@@ -41,96 +49,180 @@
     </header>
 
     <div class="toolbar">
-      <label style="margin:0">Active Tenant ID (<code>X-Tenant-Id</code>):</label>
-      <input id="tenantId" value="acme-fintech-za" />
-      <button type="button" class="secondary" onclick="loadSample()">Load Sample POPIA &amp; Treasury Policy</button>
+      <label style="margin:0">Tenant API Key (<code>X-Api-Key</code>):</label>
+      <input id="apiKey" value="demo-public-key-2026" onchange="resolveTenant()" />
+      <span id="resolvedTenant" class="tenant-pill">Tenant: acme-fintech-za (auto-wipes 30m)</span>
+      <button type="button" class="secondary" onclick="loadSample()">Load Multi-Section Policy Sample</button>
     </div>
 
     <div class="grid">
       <div class="card">
         <h2>1. Ingest Knowledge Document</h2>
-        <label>Document Title</label>
-        <input id="docTitle" placeholder="e.g., POPIA Retention & Ledger Policy v2.4" />
+        <label>Document Title (max 200 chars)</label>
+        <input id="docTitle" maxlength="200" placeholder="e.g., POPIA Retention & Ledger Policy v2.4" />
         <label>Source URI</label>
         <input id="sourceUri" placeholder="s3://policies/popia-retention-v2.4.pdf" />
-        <label>Document Text</label>
-        <textarea id="docContent" rows="7" placeholder="Paste policy or technical documentation..."></textarea>
-        <button type="button" onclick="ingestDoc()">Chunk, Embed &amp; Index</button>
+        <label>Document Text (max 15,000 chars)</label>
+        <textarea id="docContent" rows="7" maxlength="15000" placeholder="Paste policy or technical documentation..."></textarea>
+        <button id="ingestBtn" type="button" onclick="ingestDoc()">Chunk, Embed &amp; Index</button>
         <div id="ingestResult" style="margin-top:1rem;font-size:0.875rem;color:#38bdf8;"></div>
       </div>
 
       <div class="card">
         <h2>2. Grounded Hybrid Query</h2>
-        <label>Ask a Question</label>
-        <input id="question" value="What is the exact retention period under POPIA Section 14 and the threshold for dual treasury approval?" />
-        <button type="button" onclick="runQuery()">Run Hybrid Search + Synthesis</button>
+        <label>Ask a Question (max 500 chars)</label>
+        <textarea id="question" rows="2" maxlength="500">What is the exact retention period under POPIA Section 14 and the threshold for dual treasury approval?</textarea>
+        <button id="queryBtn" type="button" onclick="runQuery()">Run Hybrid Search + Synthesis</button>
         <div id="queryResult" style="margin-top:1rem;"></div>
       </div>
     </div>
   </div>
 
   <script>
+    function escapeHtml(str) {
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function renderSafeMarkdown(rawText) {
+      let safe = escapeHtml(rawText);
+      safe = safe.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+      safe = safe.replace(/`([^`]+)`/g, '<code>$1</code>');
+      safe = safe.replace(/\[([^\[\]]+? \| Chunk #\d+)\]/g, '<span class="cite-tag">[$1]</span>');
+      const lines = safe.split(/\r?\n/);
+      let html = '';
+      let inList = false;
+      for (const line of lines) {
+        const bullet = line.match(/^\s*[-*]\s+(.*)$/);
+        if (bullet) {
+          if (!inList) { html += '<ul style="margin:0.4rem 0;padding-left:1.3rem;">'; inList = true; }
+          html += `<li>${bullet[1]}</li>`;
+        } else {
+          if (inList) { html += '</ul>'; inList = false; }
+          if (line.trim().length > 0) html += `<p style="margin:0.45rem 0;">${line}</p>`;
+        }
+      }
+      if (inList) html += '</ul>';
+      return html;
+    }
+
+    async function resolveTenant() {
+      const key = document.getElementById('apiKey').value.trim();
+      const pill = document.getElementById('resolvedTenant');
+      try {
+        const res = await fetch('/api/tenant/whoami', { headers: { 'X-Api-Key': key } });
+        if (!res.ok) {
+          pill.textContent = 'Invalid X-Api-Key (HTTP 401)';
+          pill.style.color = '#fca5a5';
+          return;
+        }
+        const data = await res.json();
+        pill.style.color = '#38bdf8';
+        pill.textContent = data.autoWipeMinutes
+          ? `Tenant: ${data.tenantId} (auto-wipes ${data.autoWipeMinutes}m)`
+          : `Tenant: ${data.tenantId}`;
+      } catch {
+        pill.textContent = 'Tenant check unavailable';
+      }
+    }
+
     function loadSample() {
       document.getElementById('docTitle').value = 'ZAR Treasury & POPIA Compliance Standard (POL-2026-09)';
       document.getElementById('sourceUri').value = 'internal://compliance/POL-2026-09';
       document.getElementById('docContent').value =
-        'Section 1 (POPIA Section 14 Retention): All customer KYC and double-entry wallet ledger audit trails must be retained in immutable append-only storage for exactly 5 years following account closure.\n\n' +
-        'Section 2 (Treasury Dual-Control): Any single outbound ZAR settlement exceeding R250,000.00 requires dual cryptographic approval from two senior treasury officers and triggers automated SARB FinSurv reporting within 24 hours.';
+        'Section 1 (POPIA Section 14 Retention): All customer KYC records, identity verification logs, and double-entry wallet ledger audit trails must be retained in immutable append-only storage for exactly 5 years following account closure. Any early deletion request must be escalated to the Information Officer.\n\n' +
+        'Section 2 (Treasury Dual-Control & SARB Reporting): Any single outbound ZAR settlement exceeding R250,000.00 requires dual cryptographic approval from two senior treasury officers and triggers automated SARB FinSurv reporting within 24 hours. Cross-border SWIFT instructions above R1,000,000.00 require additional Reserve Bank Balance of Payments (BoP) category validation.\n\n' +
+        'Section 3 (Incident Escalation SLA): Suspected ledger tampering or unauthorized API key usage must be isolated within 15 minutes and reported to the Information Regulator under POPIA Section 22 as soon as reasonably possible.';
     }
 
     async function ingestDoc() {
-      const tenant = document.getElementById('tenantId').value;
+      const apiKey = document.getElementById('apiKey').value.trim();
+      const title = document.getElementById('docTitle').value.trim();
+      const content = document.getElementById('docContent').value.trim();
       const out = document.getElementById('ingestResult');
+      const btn = document.getElementById('ingestBtn');
+
+      if (!title || !content) {
+        out.innerHTML = '<span class="badge refused">VALIDATION</span><pre>Document Title and Document Text are required.</pre>';
+        return;
+      }
+
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span> Indexing...';
       out.textContent = 'Chunking and generating 768-dim embeddings...';
+
       try {
         const res = await fetch('/api/documents/ingest', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-Tenant-Id': tenant },
+          headers: { 'Content-Type': 'application/json', 'X-Api-Key': apiKey },
           body: JSON.stringify({
-            title: document.getElementById('docTitle').value,
-            sourceUri: document.getElementById('sourceUri').value,
-            content: document.getElementById('docContent').value
+            title,
+            sourceUri: document.getElementById('sourceUri').value.trim(),
+            content
           })
         });
         const text = await res.text();
         if (!res.ok) {
-          out.innerHTML = `<span class="badge refused">HTTP ${res.status}</span><pre>${text}</pre>`;
+          out.innerHTML = `<span class="badge refused">HTTP ${res.status}</span><pre>${escapeHtml(text)}</pre>`;
           return;
         }
         const data = JSON.parse(text);
         out.textContent = `Indexed "${data.title}" (${data.chunkCount} chunks, Deduplicated: ${data.deduplicated})`;
       } catch (err) {
-        out.innerHTML = `<span class="badge refused">ERROR</span><pre>${err}</pre>`;
+        out.innerHTML = `<span class="badge refused">ERROR</span><pre>${escapeHtml(err)}</pre>`;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Chunk, Embed & Index';
       }
     }
 
     async function runQuery() {
-      const tenant = document.getElementById('tenantId').value;
+      const apiKey = document.getElementById('apiKey').value.trim();
+      const question = document.getElementById('question').value.trim();
       const out = document.getElementById('queryResult');
+      const btn = document.getElementById('queryBtn');
+
+      if (!question) {
+        out.innerHTML = '<span class="badge refused">VALIDATION</span><pre>Please enter a question.</pre>';
+        return;
+      }
+
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span> Searching...';
       out.innerHTML = 'Running vector + lexical RRF search...';
+
       try {
         const res = await fetch('/api/query', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-Tenant-Id': tenant },
-          body: JSON.stringify({ question: document.getElementById('question').value, topK: 3 })
+          headers: { 'Content-Type': 'application/json', 'X-Api-Key': apiKey },
+          body: JSON.stringify({ question, topK: 3 })
         });
         const text = await res.text();
         if (!res.ok) {
-          out.innerHTML = `<span class="badge refused">HTTP ${res.status}</span><pre>${text}</pre>`;
+          out.innerHTML = `<span class="badge refused">HTTP ${res.status}</span><pre>${escapeHtml(text)}</pre>`;
           return;
         }
         const data = JSON.parse(text);
         const badge = data.grounded
-          ? `<span class="badge grounded">GROUNDED &bull; ${data.providerUsed} &bull; ${data.latencyMs}ms</span>`
-          : `<span class="badge refused">REFUSED — ANTI-HALLUCINATION GATE &bull; ${data.latencyMs}ms</span>`;
+          ? `<span class="badge grounded">GROUNDED &bull; ${escapeHtml(data.providerUsed)} &bull; ${data.latencyMs}ms</span>`
+          : `<span class="badge refused">REFUSED — ANTI-HALLUCINATION GATE &bull; ${escapeHtml(data.providerUsed)} &bull; ${data.latencyMs}ms</span>`;
         const cites = (data.citations || []).map(c =>
-          `<div class="citation"><strong>[${c.documentTitle} | Chunk #${c.chunkIndex}]</strong> (Vec: ${c.vectorSimilarity}, KW: ${c.keywordScore}, RRF: ${c.rrfScore})<br/>${c.excerpt}</div>`
+          `<div class="citation"><strong>[${escapeHtml(c.documentTitle)} | Chunk #${c.chunkIndex}]</strong> (Vec: ${c.vectorSimilarity}, KW: ${c.keywordScore}, RRF: ${c.rrfScore})<br/>${escapeHtml(c.excerpt)}</div>`
         ).join('');
-        out.innerHTML = `${badge}<p style="line-height:1.55;">${data.answer}</p>${cites}`;
+        out.innerHTML = `${badge}<div class="answer-body">${renderSafeMarkdown(data.answer)}</div>${cites}`;
       } catch (err) {
-        out.innerHTML = `<span class="badge refused">ERROR</span><pre>${err}</pre>`;
+        out.innerHTML = `<span class="badge refused">ERROR</span><pre>${escapeHtml(err)}</pre>`;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Run Hybrid Search + Synthesis';
       }
     }
+
+    resolveTenant();
   </script>
 </body>
 </html>
