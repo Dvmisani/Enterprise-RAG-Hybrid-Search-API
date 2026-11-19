@@ -12,7 +12,7 @@ namespace EnterpriseRag.Api.Services;
 public sealed record IngestDocumentRequest(string Title, string SourceUri, string Content);
 public sealed record IngestDocumentResponse(Guid DocumentId, string Title, string ContentHash, int ChunkCount, bool Deduplicated);
 
-public sealed record RagQueryRequest(string Question, int TopK = 4, double MinRelevanceScore = 0.48);
+public sealed record RagQueryRequest(string Question, int TopK = 4, double MinRelevanceScore = 0.68);
 public sealed record CitationSourceDto(
     Guid ChunkId,
     string DocumentTitle,
@@ -171,7 +171,7 @@ public sealed class RagEngineService(
             .ToList();
 
         var topBest = fused[0];
-        var strongKeywordMatch = topBest.KeywordScore >= 0.45 && topBest.VectorSimilarity >= 0.30;
+        var strongKeywordMatch = (topBest.KeywordScore >= 0.45 && topBest.VectorSimilarity >= 0.30) || (topBest.KeywordScore >= 0.25 && topBest.VectorSimilarity >= 0.58);
         var passesThreshold = topBest.VectorSimilarity >= req.MinRelevanceScore || strongKeywordMatch;
 
         if (!passesThreshold)
@@ -309,5 +309,6 @@ public sealed class RagEngineService(
 
     private sealed record VectorRow(Guid ChunkId, string DocumentTitle, string SourceUri, int ChunkIndex, string Content, double VectorSimilarity);
 }
+
 
 

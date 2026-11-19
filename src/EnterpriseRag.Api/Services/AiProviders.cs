@@ -129,7 +129,7 @@ public sealed class GeminiChatCompletionProvider(HttpClient http, GeminiOptions 
             try
             {
                 using var attemptCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                attemptCts.CancelAfter(TimeSpan.FromSeconds(8));
+                attemptCts.CancelAfter(TimeSpan.FromSeconds(12));
 
                 var url = $"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={options.ApiKey}";
                 using var res = await http.PostAsJsonAsync(url, payload, attemptCts.Token);
@@ -166,9 +166,13 @@ public sealed class GeminiChatCompletionProvider(HttpClient http, GeminiOptions 
         return BuildExtractiveCitationAnswer(contexts);
     }
 
-    private static string BuildExtractiveCitationAnswer(IReadOnlyList<RetrievedChunkContext> contexts)
+        private static string BuildExtractiveCitationAnswer(IReadOnlyList<RetrievedChunkContext> contexts)
     {
         var top = contexts[0];
+        if (top.KeywordScore <= 0 && top.VectorSimilarity < 0.72)
+        {
+            return "INSUFFICIENT_GROUNDING: No passage matched the query terms with sufficient confidence.";
+        }
         return $"Based on [{top.DocumentTitle} | Chunk #{top.ChunkIndex}]: {top.Content}";
     }
 }
@@ -206,3 +210,4 @@ public static class DeterministicHashEmbedding
         return vec;
     }
 }
+
