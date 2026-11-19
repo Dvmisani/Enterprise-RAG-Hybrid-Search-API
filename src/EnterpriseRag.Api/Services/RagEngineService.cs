@@ -195,7 +195,7 @@ public sealed class RagEngineService(
         sw.Stop();
         var citations = modelRefused
             ? []
-            : fused.Select(c => new CitationSourceDto(
+            : fused.Where(c => c.VectorSimilarity >= 0.25 || c.KeywordScore > 0).Select(c => new CitationSourceDto(
                 c.ChunkId,
                 c.DocumentTitle,
                 c.SourceUri,
@@ -309,4 +309,5 @@ public sealed class RagEngineService(
 
     private sealed record VectorRow(Guid ChunkId, string DocumentTitle, string SourceUri, int ChunkIndex, string Content, double VectorSimilarity);
 }
+
 
