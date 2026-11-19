@@ -309,3 +309,4 @@ public sealed class RagEngineService(
 
     private sealed record VectorRow(Guid ChunkId, string DocumentTitle, string SourceUri, int ChunkIndex, string Content, double VectorSimilarity);
 }
+
