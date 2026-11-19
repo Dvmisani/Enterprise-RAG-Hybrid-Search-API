@@ -171,7 +171,7 @@ public sealed class RagEngineService(
             .ToList();
 
         var topBest = fused[0];
-        var strongKeywordMatch = (topBest.KeywordScore >= 0.33 && topBest.VectorSimilarity >= 0.35) || (topBest.KeywordScore >= 0.25 && topBest.VectorSimilarity >= 0.58);
+        var strongKeywordMatch = (topBest.KeywordScore >= 0.30 && topBest.VectorSimilarity >= 0.20) || (topBest.KeywordScore >= 0.25 && topBest.VectorSimilarity >= 0.58);
         var passesThreshold = topBest.VectorSimilarity >= req.MinRelevanceScore || strongKeywordMatch;
 
         if (!passesThreshold)
@@ -309,6 +309,7 @@ public sealed class RagEngineService(
 
     private sealed record VectorRow(Guid ChunkId, string DocumentTitle, string SourceUri, int ChunkIndex, string Content, double VectorSimilarity);
 }
+
 
 
 
