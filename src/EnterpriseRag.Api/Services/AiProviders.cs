@@ -175,7 +175,15 @@ public sealed class GeminiChatCompletionProvider(HttpClient http, GeminiOptions 
         }
         var relevant = contexts.Where(c => c.KeywordScore > 0 || c.VectorSimilarity >= 0.45).Take(2).ToList();
         if (relevant.Count == 0) relevant.Add(top);
-        return string.Join(" ", relevant.Select(c => $"Based on [{c.DocumentTitle} | Chunk #{c.ChunkIndex}]: {c.Content}"));
+                var sanitized = relevant.Select(c =>
+        {
+            var cleanLines = c.Content
+                .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
+                .Where(l => !l.Contains("IGNORE ALL PREVIOUS INSTRUCTIONS", StringComparison.OrdinalIgnoreCase) &&
+                            !l.Contains("SYSTEM OVERRIDE", StringComparison.OrdinalIgnoreCase));
+            return $"Based on [{c.DocumentTitle} | Chunk #{c.ChunkIndex}]: {string.Join(" ", cleanLines)}";
+        });
+        return string.Join(" ", sanitized);
     }
 }
 
@@ -212,3 +220,4 @@ public static class DeterministicHashEmbedding
         return vec;
     }
 }
+
