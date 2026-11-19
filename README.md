@@ -28,7 +28,7 @@ Production-grade, multi-tenant Retrieval-Augmented Generation (RAG) and hybrid s
    - Dynamically discovers text-capable Gemini models (`gemini-embedding-001` for 768-dim vectors; multi-model Flash failover with per-model timeouts for synthesis) and degrades gracefully when hosted endpoints experience transient load spikes.
 
 5. **Automated CI/CD with SQL Server 2025 `Testcontainers`**
-   - GitHub Actions spins up a real `[mcr.microsoft.com/mssql/server:2025-latest](https://mcr.microsoft.com/mssql/server:2025-latest)` Docker container on every push to verify multi-tenant isolation, sliding-window chunking, SHA-256 deduplication, and grounded citation synthesis before deploying to Azure App Service.
+   - GitHub Actions spins up a real `mcr.microsoft.com/mssql/server:2025-latest` Docker container on every push to verify multi-tenant isolation, sliding-window chunking, SHA-256 deduplication, and grounded citation synthesis before deploying to Azure App Service.
 
 ---
 
@@ -36,7 +36,7 @@ Production-grade, multi-tenant Retrieval-Augmented Generation (RAG) and hybrid s
 
 bash
 # 1. Start SQL Server 2025 in Docker
-docker run -d --name sql2025-rag -e "ACCEPT_EULA=Y" -e "MSSQL_SA_PASSWORD=Your_Strong_Password123!" -p 1433:1433 [mcr.microsoft.com/mssql/server:2025-latest](https://mcr.microsoft.com/mssql/server:2025-latest)
+docker run -d --name sql2025-rag -e "ACCEPT_EULA=Y" -e "MSSQL_SA_PASSWORD=Your_Strong_Password123!" -p 1433:1433 mcr.microsoft.com/mssql/server:2025-latest
 docker exec sql2025-rag /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "Your_Strong_Password123!" -C -Q "CREATE DATABASE EnterpriseRagDb;"
 
 # 2. Configure Gemini API Key via .NET User Secrets
@@ -50,4 +50,5 @@ Run the automated SQL Server 2025 integration test suite:
 
 bash
 dotnet test --nologo --logger "console;verbosity=normal"
+
 
