@@ -8,11 +8,6 @@ using Xunit;
 
 namespace EnterpriseRag.IntegrationTests;
 
-using Testcontainers.MsSql;
-using Xunit;
-
-namespace EnterpriseRag.IntegrationTests;
-
 [CollectionDefinition("SqlServer2025")]
 public sealed class SqlServer2025Collection : ICollectionFixture<SqlServer2025Fixture>;
 
@@ -32,7 +27,6 @@ public sealed class RagPipelineTests(SqlServer2025Fixture fixture)
 {
     private WebApplicationFactory<Program> CreateFactory()
     {
-        _ = fixture.Container.GetConnectionString();
         return new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
             builder.UseEnvironment("Development");
@@ -224,4 +218,3 @@ public sealed class RagPipelineTests(SqlServer2025Fixture fixture)
         Assert.Equal(HttpStatusCode.BadRequest, oversizedQuery.StatusCode);
     }
 }
-
